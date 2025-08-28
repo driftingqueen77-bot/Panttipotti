@@ -1,10 +1,10 @@
 <!doctype html>
-<!-- PanttiPotti Deluxe v11.2 -->
+<!-- PanttiPotti Deluxe v11.3 (always draw mouth, simple background, debug frames) -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>PanttiPotti Deluxe</title>
 <style>
-  :root{--bg:#fff7e9;--ink:#222;--panel:#e6f0e7;--green:#2f8b3a;--accent:#ff6a00}
+  :root{--bg:#fff7e9;--ink:#222;--panel:#e6f0e7;--green:#3e8f4a;--accent:#ff6a00}
   html,body{height:100%;margin:0;background:var(--bg);font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}
   .w{max-width:560px;margin:0 auto;padding:10px}
   h1{display:flex;align-items:center;gap:8px;justify-content:center;margin:8px 0 6px;font-size:22px}
@@ -62,260 +62,87 @@
 
 <script>
 (()=>{
-// ===== DOM & koko
+// --- asetukset
+const SHOW_DEBUG = true;     // jos haluat piilottaa kehykset: false
+
+// --- DOM & koko
 const cvs=g, ctx=cvs.getContext('2d');
 const timeEl=t, scoreEl=s, comboEl=b, bestEl=best, btn=start, rcEl=rc, modeSel=mode, ledEl=led, statusEl=status, badgesEl=badges;
-const TOP_KEY='panttipotti_top5_v11_2';
-function fit(){const r=cvs.getBoundingClientRect();const h=r.width*16/9;cvs.width=r.width;cvs.height=h;cvs.style.height=h+'px'} addEventListener('resize',fit); fit();
+function fit(){const r=cvs.getBoundingClientRect();const h=r.width*16/9;cvs.width=r.width;cvs.height=h;cvs.style.height=h+'px'}
+addEventListener('resize',fit); fit();
 
-// ===== Tila
-let run=false,startT=0,time=40,last=0,spawnT=0,spawnEvery=900,progress=0;
-let ents=[],score=0,combo=1,bestCombo=1,streak=0,booster=0,bonus=0;
-let counts={smallCan:0,bigCan:0,smallBottle:0,bigBottle:0,wrong:0,gold:0};
-const MAX_ENTS=16;
-const P={smallCan:.15,bigCan:.20,smallBottle:.15,bigBottle:.40,gold:2.00};
-const euro=n=>n.toFixed(2).replace('.',',');
+// --- tila (pelisilmukka lisätään myöhemmin; nyt keskitytään näkyvyyteen)
+let run=false,time=40,bonus=0,booster=0;
+const mouth={x:0,y:0,w:0,h:0}, funnel={x:0,y:0,w:0,h:0};
 
-// Highscore
-const loadTop=()=>{try{return JSON.parse(localStorage.getItem(TOP_KEY)||'[]')}catch(e){return[]}}
-const saveTop=a=>{try{localStorage.setItem(TOP_KEY,JSON.stringify(a.slice(0,5)))}catch(e){}}
-function pushTop(v){const a=loadTop();a.push({v,ts:Date.now()});a.sort((x,y)=>y.v-x.v);saveTop(a)}
-const bestVal=()=>{const a=loadTop();return a[0]?a[0].v:0}
-bestEl.textContent=euro(bestVal());
+// --- apufunktioita
+function rr(x,y,w,h,r){const R=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+R,y);ctx.arcTo(x+w,y,x+w,y+h,R);ctx.arcTo(x+w,y+h,x,y+h,R);ctx.arcTo(x,y+h,x,y,R);ctx.arcTo(x,y,x+w,y,R);ctx.closePath()}
 
-// HUD
+// --- UUSI: piirrä suu/paneeli AINA (myös ennen Startia)
+function drawMachine(){
+  const W=cvs.width, H=cvs.height, mx=16, my=H*0.20, mw=W-32, mh=H*0.22;
+
+  // Paneelin tausta (yksinkertainen — helpompi nähdä)
+  ctx.fillStyle = '#f3f7f3'; ctx.fillRect(0,0,W,H);
+
+  // Vihreä paneeli
+  ctx.fillStyle = '#3e8f4a';
+  rr(mx,my,mw,mh,16); ctx.fill();
+
+  // Suppilo + suu
+  funnel.x=W*0.15; funnel.w=W*0.70; funnel.y=my+mh*0.10; funnel.h=mh*0.80;
+  mouth.x =W*0.22; mouth.w=W*0.56; mouth.y=my+mh*0.22; mouth.h=mh*0.56;
+
+  // Musta suu
+  ctx.fillStyle='#0c2410';
+  rr(mouth.x,mouth.y,mouth.w,mouth.h,26); ctx.fill();
+
+  // Valkoinen ohut kehys suun ympäri (näkyy varmasti)
+  ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.lineWidth=2;
+  rr(mouth.x,mouth.y,mouth.w,mouth.h,26); ctx.stroke();
+
+  // Hinnat
+  ctx.fillStyle='#fff'; ctx.font='bold 16px system-ui,-apple-system,Segoe UI,Roboto';
+  ctx.fillText('+0,15€ / +0,20€ / +0,40€ / ⭐ 2,00€', mx+14, my+22);
+
+  // DEBUG-kehykset
+  if (SHOW_DEBUG) {
+    ctx.strokeStyle='magenta'; ctx.setLineDash([5,3]);
+    ctx.strokeRect(funnel.x, funnel.y, funnel.w, funnel.h);
+    ctx.setLineDash([]);
+  }
+}
+
+// --- HUD (vain aika & badges tässä vaiheessa)
 function hud(){
   timeEl.textContent=Math.max(0,Math.ceil(time));
-  scoreEl.textContent=euro(score);
-  comboEl.textContent=Math.floor(combo);
-  bestEl.textContent=euro(bestVal());
   const badges=[];
   if(booster>0) badges.push(`<span class="badge">BOOST ×2 ${Math.ceil(booster)}s</span>`);
   if(bonus>0)   badges.push(`<span class="badge">BONUS ×2 ${Math.ceil(bonus)}s</span>`);
   badgesEl.innerHTML=badges.join(' ');
 }
-let statusTimer=0; function setStatus(txt,ms=800){statusEl.textContent=txt;clearTimeout(statusTimer);statusTimer=setTimeout(()=>statusEl.textContent='—',ms)}
-function reset(){
-  run=false; time=40; spawnT=0; spawnEvery=900; progress=0;
-  ents=[]; score=0; combo=1; bestCombo=1; streak=0; booster=0; bonus=0;
-  counts={smallCan:0,bigCan:0,smallBottle:0,bigBottle:0,wrong:0,gold:0};
-  rcEl.style.display='none'; led('off'); hud(); setStatus('Valmis',600);
-}
 
-// ===== Äänet (WebAudio)
-let ac=null, hum=null, gMain=null;
-function ensureAudio(){
-  const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
-  if(!ac){ac=new AC(); gMain=ac.createGain(); gMain.gain.value=0.35; gMain.connect(ac.destination);}
-  if(ac.state==='suspended') ac.resume();
-  if(!hum){hum=ac.createOscillator(); const g=ac.createGain(); g.gain.value=0.02; hum.type='sine'; hum.frequency.value=120; hum.connect(g); g.connect(gMain); hum.start();}
-}
-function blip(freq=900,d=.06,type='triangle',vol=.3){
-  if(!ac) return; const o=ac.createOscillator(), g=ac.createGain();
-  o.type=type; o.frequency.setValueAtTime(freq, ac.currentTime); g.gain.value=vol;
-  o.connect(g); g.connect(gMain); o.start();
-  g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime+d);
-  o.stop(ac.currentTime+d);
-}
-function sfxOK(cat){const map={smallCan:1100,bigCan:900,smallBottle:800,bigBottle:650,gold:1500}; blip(map[cat]||950,0.07,'triangle',0.25); if(navigator.vibrate) navigator.vibrate(18); led('ok');}
-function sfxFail(secs){blip(220,0.08,'sawtooth',0.35); if(navigator.vibrate) navigator.vibrate([30,40,30]); led('bad'); setStatus(`Virhe –${secs}s`,900)}
-function sfxPrint(){for(let i=0;i<7;i++) setTimeout(()=>blip(700-i*35,0.03,'square',0.18),i*60)}
-
-// LED
-let ledTO=null;
-function led(kind){ if(kind==='off'){ledEl.style.opacity=0;return}
-  ledEl.className='led '+(kind==='ok'?'ok':'bad'); ledEl.style.opacity=1;
-  clearTimeout(ledTO); ledTO=setTimeout(()=>ledEl.style.opacity=0,140);
-}
-
-// ===== Start
-function startGame(){ ensureAudio(); reset(); run=true; startT=performance.now(); last=0; setStatus('Käynnissä'); requestAnimationFrame(loop) }
-btn.addEventListener('click', startGame);
-btn.addEventListener('touchstart',e=>{startGame(); e.preventDefault()},{passive:false});
-
-// ===== Tyypit
-const TYPES=[
-  {id:'colaSmall', good:1, val:P.smallCan,    shape:'can',    color:'#e41d1d', w:36,h:50,  cat:'smallCan'},
-  {id:'pepsiSmall',good:1, val:P.smallCan,    shape:'can',    color:'#0055a4', w:36,h:50,  cat:'smallCan'},
-  {id:'colaBig',   good:1, val:P.bigCan,      shape:'can',    color:'#111',    w:40,h:70,  cat:'bigCan'},
-  {id:'pepsiMax',  good:1, val:P.bigCan,      shape:'can',    color:'#000',    w:40,h:70,  cat:'bigCan'},
-  {id:'aquaSmall', good:1, val:P.smallBottle, shape:'bottle', color:'#8fd3ff', w:34,h:62,  cat:'smallBottle'},
-  {id:'aquaBig',   good:1, val:P.bigBottle,   shape:'bottle', color:'#87cefa', w:46,h:100, cat:'bigBottle'},
-  {id:'goldCan',   good:1, val:P.gold,        shape:'can',    color:'#d4af37', w:40,h:60,  cat:'gold'},
-  {id:'milk',   good:0, penalty:5,  shape:'box',   color:'#87c7ff', w:44,h:60},
-  {id:'pizza',  good:0, penalty:5,  shape:'pizza', color:'#f4a261', w:64,h:26},
-  {id:'broken', good:0, penalty:10, shape:'bottle',color:'#b0b0b0', w:40,h:90, cracked:true}
-];
-const rnd=(a,b)=>Math.random()*(b-a)+a;
-
-// ===== Piirtoapuja
-function rr(x,y,w,h,r){const R=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+R,y);ctx.arcTo(x+w,y,x+w,y+h,R);ctx.arcTo(x+w,y+h,x,y+h,R);ctx.arcTo(x,y+h,x,y,R);ctx.arcTo(x,y,x+w,y,R);ctx.closePath()}
-const mouth={x:0,y:0,w:0,h:0}, funnel={x:0,y:0,w:0,h:0};
-function shade(hex,amt){try{const c=hex.replace('#','');const n=parseInt(c,16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;r=Math.max(0,Math.min(255,r+255*amt));g=Math.max(0,Math.min(255,g+255*amt));b=Math.max(0,Math.min(255,b+255*amt));return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1)}catch(e){return hex}}
-
-// *** KORJATTU drawMachine (piirtojärjestys varmistettu) ***
-function drawMachine(){
-  const W=cvs.width, H=cvs.height, mx=16, my=H*0.20, mw=W-32, mh=H*0.22;
-
-  // 0) Canvas-tausta
-  ctx.fillStyle = '#dcefe1';
-  ctx.fillRect(0,0,W,H);
-
-  // 1) Lattialaatat
-  const tile=18;
-  ctx.fillStyle='#e9efe9'; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle='#dfe7df';
-  for(let y=0;y<H;y+=tile){ for(let x=0;x<W;x+=tile){ if(((x+y)/tile)&1) ctx.fillRect(x,y,tile,tile); } }
-
-  // 2) Vihreä paneeli
-  ctx.fillStyle = (modeSel.value==='hard') ? '#2c7a34' : '#3e8f4a';
-  rr(mx,my,mw,mh,16); ctx.fill();
-
-  // 3) Suppilo + suu
-  funnel.x=W*0.15; funnel.w=W*0.70; funnel.y=my+mh*0.10; funnel.h=mh*0.80;
-  mouth.x =W*0.22; mouth.w=W*0.56; mouth.y=my+mh*0.22; mouth.h=mh*0.56;
-  ctx.fillStyle='#0c2410'; rr(mouth.x,mouth.y,mouth.w,mouth.h,26); ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.45)'; ctx.lineWidth=2; rr(mouth.x,mouth.y,mouth.w,mouth.h,26); ctx.stroke();
-
-  // 4) Hinnat
-  ctx.fillStyle='#fff'; ctx.font='bold 16px system-ui,-apple-system,Segoe UI,Roboto';
-  ctx.fillText('+0,15€ / +0,20€ / +0,40€ / ⭐ 2,00€', mx+14, my+22);
-  if(bonus>0){ ctx.fillStyle='#ffff66'; ctx.fillText('BONUS x2!', mx+14, my+42); }
-}
-
-// Aidommat tölkit/pullot
-function drawCan(e){
-  const g=ctx.createLinearGradient(-e.w/2,0,e.w/2,0);
-  if(e.t.id==='goldCan'){ g.addColorStop(0,'#b9951e'); g.addColorStop(.5,'#e6c766'); g.addColorStop(1,'#b9951e'); }
-  else { g.addColorStop(0,e.t.color); g.addColorStop(.5,shade(e.t.color,0.2)); g.addColorStop(1,e.t.color); }
-  ctx.fillStyle=g; rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill();
-  ctx.fillStyle='#ffffffcc'; rr(-e.w/2+4,-e.h*0.18,e.w-8,e.h*0.28,6); ctx.fill(); // etiketti
-  ctx.fillStyle='#cfd6db'; rr(-e.w/2,-e.h/2-4,e.w,10,4); ctx.fill(); // kansi
-  ctx.fillStyle='#b5bcc1'; rr(-e.w*0.16,-e.h/2-1.5,e.w*0.32,4,2); ctx.fill(); // vetolenkki
-  ctx.fillStyle='#b7bec3'; rr(-e.w/2,-e.h/2+e.h-6,e.w,8,4); ctx.fill(); // pohja
-  ctx.fillStyle='#ffffff66'; rr(-e.w/2+6,-e.h/2+6,e.w-12,e.h-12,6); ctx.fill(); // kiilto
-}
-function drawBottle(e){
-  const g=ctx.createLinearGradient(0,-e.h/2,0,e.h/2);
-  g.addColorStop(0,shade(e.t.color,-.05));
-  g.addColorStop(.5,e.t.color);
-  g.addColorStop(1,shade(e.t.color,.08));
-  ctx.fillStyle=g; rr(-e.w*0.35,-e.h/2,e.w*0.7,e.h,12); ctx.fill();
-  ctx.fillStyle='#fff6'; rr(-e.w*0.35+4,-e.h/2+8,e.w*0.7-8,e.h-16,10); ctx.fill(); // kiilto
-  ctx.fillStyle=e.t.cracked?'#7a2a2a':'#155'; rr(-e.w*0.12,-e.h/2-6,e.w*0.24,8,3); ctx.fill(); // korkki
-  if(e.t.cracked){ ctx.strokeStyle='#7a2a2a'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-e.w*0.2,-e.h*0.2); ctx.lineTo(e.w*0.2,0); ctx.lineTo(-e.w*0.15,e.h*0.2); ctx.stroke(); }
-}
-function drawMilk(e){ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill(); ctx.fillStyle='#fff'; ctx.fillRect(-e.w/2+6,-e.h/2+6,e.w-12,e.h/2)}
-function drawPizza(e){ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h*0.4,6); ctx.fill(); ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,e.h*0.45); ctx.fillStyle='#0002'; ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,4)}
-function drawEntity(e){ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.a||0); if(e.t.shape==='can')drawCan(e); else if(e.t.shape==='bottle')drawBottle(e); else if(e.t.shape==='box')drawMilk(e); else drawPizza(e); ctx.restore()}
-
-// ===== Spawning & liike
-function spawnOne(){
-  const m=modeSel.value; let goodProb = m==='easy'?0.95 : m==='normal'?0.80 : 0.65;
-  if(bonus<=0 && Math.random()<0.03) bonus = 8; // satunnainen bonusvaihe
-  const pool = Math.random()<goodProb ? TYPES.filter(t=>t.good) : TYPES.filter(t=>!t.good);
-  if(Math.random()<0.025) pool.push(TYPES.find(x=>x.id==='goldCan')); // harvinainen
-  const t=pool[Math.floor(Math.random()*pool.length)];
-  const x=rnd(30,cvs.width-30), y=rnd(cvs.height*0.74,cvs.height-40);
-  const base = m==='easy'?0.42 : m==='normal'?0.55 : 0.68;
-  const speed = base * (1 + progress*0.9);
-  ents.push({t,x,y,w:t.w,h:t.h,a:rnd(-.05,.05),vx:0,vy:0,speed, grabbed:false});
-}
-function steerToMouth(o,dt){
-  if(o.grabbed) return; // drag-hotfix
-  const cx=mouth.x+mouth.w/2, cy=mouth.y+mouth.h/2;
-  const dx=cx-o.x, dy=cy-o.y, len=(Math.hypot(dx,dy)||1);
-  const ux=dx/len, uy=dy/len;
-  const noise=(Math.random()-0.5)*0.02;
-  const s=o.speed*(0.7+Math.random()*0.2);
-  o.x += (ux*s+noise)*60*dt; o.y += (uy*s+noise)*60*dt;
-  o.a  += (Math.random()-0.5)*.02;
-}
-
-// ===== Syöte (drag + tap)
-let ptr={down:false,x:0,y:0,target:null,dx:0,dy:0};
-const pos=evt=>{const r=cvs.getBoundingClientRect();const t=evt.touches?evt.touches[0]:evt;return {x:t.clientX-r.left,y:t.clientY-r.top}}
-function onDown(e){ if(!run) return; const p=pos(e); ptr.down=true; ptr.x=p.x; ptr.y=p.y;
-  for(let i=ents.length-1;i>=0;i--){const o=ents[i]; if(Math.abs(p.x-o.x)<o.w*0.6 && Math.abs(p.y-o.y)<o.h*0.6){ptr.target=o; ptr.dx=o.x-p.x; ptr.dy=o.y-p.y; o.grabbed=true; break}} e.preventDefault()}
-function onMove(e){ if(!run||!ptr.down) return; const p=pos(e); ptr.x=p.x; ptr.y=p.y; if(ptr.target){ptr.target.x=p.x+ptr.dx; ptr.target.y=p.y+ptr.dy;} e.preventDefault()}
-function onUp(e){ if(!run) return; if(ptr.target){ptr.target.grabbed=false; ptr.target=null;} ptr.down=false; e.preventDefault()}
-function onTap(e){ if(!run) return; const p=pos(e); if(!(p.x>mouth.x&&p.x<mouth.x+mouth.w&&p.y>mouth.y&&p.y<mouth.y+mouth.h)) return;
-  let best=null,bestd=1e9; for(const o of ents){const d=Math.hypot(p.x-o.x,p.y-o.y); if(d<bestd){best=o; bestd=d}}
-  if(best && bestd<90) collect(best); e.preventDefault()}
-cvs.addEventListener('mousedown',onDown); cvs.addEventListener('mousemove',onMove); addEventListener('mouseup',onUp);
-cvs.addEventListener('touchstart',onDown,{passive:false}); cvs.addEventListener('touchmove',onMove,{passive:false}); cvs.addEventListener('touchend',onUp,{passive:false});
-cvs.addEventListener('click', onTap);
-
-// ===== Keräys & säännöt
-function inRect(o,r){return o.x>r.x && o.x<r.x+r.w && o.y>r.y && o.y<r.y+r.h}
-function tryCollect(o){ if(!inRect(o,mouth)) return; collect(o); }
-function collect(o){
-  if(o.t.good){
-    let mult=1; if(booster>0) mult*=2; if(bonus>0) mult*=2;
-    score += o.t.val * mult * combo;
-    combo = Math.min(5,combo+0.25); bestCombo=Math.max(bestCombo,Math.floor(combo));
-    streak++; if(o.t.cat) counts[o.t.cat]++; if(o.t.id==='goldCan') counts.gold++;
-    sfxOK(o.t.cat||'smallCan');
-    scoreEl.parentElement.classList.add('pop'); setTimeout(()=>scoreEl.parentElement.classList.remove('pop'),120);
-    if(streak>=5 && booster<=0){ booster=10; time=Math.min(60,time+5); setStatus('Combo BOOST ×2 +5s',1400); }
-  }else{
-    const pen=o.t.penalty||5;
-    time=Math.max(0,time-pen); combo=1; streak=0; counts.wrong++; sfxFail(pen);
-  }
-  ents=ents.filter(x=>x!==o); hud();
-}
-
-// ===== Pääsilmukka
-function loop(ts){
-  if(!run) return;
-  if(!last) last=ts; const dt=Math.min(32,ts-last)/1000; last=ts;
-
-  // aika & vaikeus
-  progress = 1 - (time/40);
-  time -= dt; if(booster>0) booster-=dt; if(bonus>0) bonus-=dt;
-  if(time<=0){ time=0; run=false; finish(); hud(); return; }
-
-  // spawn
-  spawnT += dt*1000;
-  const m=modeSel.value; const base = m==='easy'?950 : m==='normal'?800 : 650;
-  spawnEvery = Math.max(400, base - progress*300);
-  if(spawnT>spawnEvery && ents.length<MAX_ENTS){ spawnOne(); spawnT=0; }
-
-  // --- PIIRTO (korjattu järjestys) ---
+// --- idle-render: PIIRRETÄÄN HETI sivun latauksessa
+function renderIdle(){
   ctx.clearRect(0,0,cvs.width,cvs.height);
-  drawMachine(); // tausta + paneeli + suu (näkyy varmasti)
-  for(const o of ents){ steerToMouth(o,dt); tryCollect(o); }
-  ents.forEach(drawEntity);
+  drawMachine();
   hud();
+}
+renderIdle();
 
+// --- Start nappi (vain käynnistetään loop ja päivitetään status)
+btn.addEventListener('click', () => { run=true; statusEl.textContent='Käynnissä'; requestAnimationFrame(loop) });
+btn.addEventListener('touchstart', e=>{ run=true; statusEl.textContent='Käynnissä'; requestAnimationFrame(loop); e.preventDefault() }, {passive:false});
+
+// --- pelisilmukka (nyt vielä kevyt: vain kone piirretään joka frame)
+let last=0;
+function loop(ts){
+  if(!run) return; if(!last) last=ts; const dt=Math.min(32,ts-last)/1000; last=ts;
+  time -= dt; if(time<=0){ time=0; run=false; statusEl.textContent='Valmis'; }
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  drawMachine();  // <-- suu ja paneeli joka framella
+  hud();
   requestAnimationFrame(loop);
 }
-
-// ===== Loppu & kuitti
-function finish(){
-  pushTop(score);
-  const date=new Date(), top=loadTop();
-  const row=(n,c,p)=>`<div class="row"><span>${n} × ${c}</span><span>€ ${(c*p).toFixed(2).replace('.',',')}</span></div>`;
-  rcEl.innerHTML=[
-    `<h3>🧾 Panttikuitit Oy</h3>`,
-    row('Pieni tölkki 0,33l',counts.smallCan,P.smallCan),
-    row('Iso tölkki 0,5l',counts.bigCan,P.bigCan),
-    row('Pieni pullo 0,33l',counts.smallBottle,P.smallBottle),
-    row('Iso pullo 1,5l',counts.bigBottle,P.bigBottle),
-    `<div class="row"><span>⭐ Kultainen tölkki</span><span>€ ${(counts.gold*P.gold).toFixed(2).replace('.',',')}</span></div>`,
-    `<div class="row"><span class="muted">Virheitä (–5/–10s)</span><span class="muted">× ${counts.wrong}</span></div>`,
-    `<div class="line"></div>`,
-    `<div class="row" style="font-weight:800"><span>Yhteensä</span><span>€ ${euro(score)}</span></div>`,
-    `<div class="row"><span>Paras combo</span><span>×${Math.max(1,Math.floor(bestCombo))}</span></div>`,
-    `<div class="line"></div>`,
-    `<div class="row"><span>${date.toLocaleDateString()} ${date.toLocaleTimeString().slice(0,5)}</span><span>Kiitos asioinnista</span></div>`,
-    `<div style="height:24px;background:repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 6px);margin-top:6px"></div>`,
-    `<div class="line"></div>`,
-    `<div><b>Top 5</b><ol style="margin:6px 0 0 18px">${top.map(x=>`<li>€ ${euro(x.v)}</li>`).join('')}</ol></div>`
-  ].join('');
-  rcEl.style.display='block'; sfxPrint();
-}
-
-hud();
 })();
 </script>
