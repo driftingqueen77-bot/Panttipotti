@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PanttiPotti</title>
+<style>
+  html,body{height:100%;margin:0;background:#fff7e9;font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#222}
+  .w{max-width:460px;margin:0 auto;padding:8px}
+  h1{text-align:center;margin:8px 0 6px;font-size:18px}
+  .h{display:flex;gap:8px;justify-content:space-between;margin:6px 0 8px}
+  .c{background:#fff;border:2px solid #0002;border-radius:10px;padding:6px 10px;font-weight:700;box-shadow:0 2px 0 #0003}
+  #g{width:100%;aspect-ratio:9/16;display:block;background:#e6f0e7;border:3px solid #234;border-radius:18px;touch-action:none}
+  .btn{display:inline-block;background:#ff6a00;color:#fff;border:none;border-radius:10px;padding:12px 16px;font-weight:800;box-shadow:0 4px 0 #0005;cursor:pointer}
+  .sheet{background:#fff;border:1px dashed #888;padding:14px;border-radius:12px}
+</style>
+<div class=w>
+  <h1>🥤 PanttiPotti</h1>
+  <div class=h>
+    <div class=c>⏱️ <span id=t>20</span>s</div>
+    <div class=c>€ <span id=s>0,00</span></div>
+    <div class=c>Combo ×<span id=b>1</span></div>
+  </div>
+  <canvas id=g></canvas>
+  <div style="text-align:center;margin-top:10px">
+    <button class=btn id=start>Aloita</button>
+  </div>
+  <div id=rc class=sheet style="display:none;margin-top:10px"></div>
+</div>
+<script>
+(()=>{const cvs=g,ctx=cvs.getContext('2d'),timeEl=t,scoreEl=s,comboEl=b,btn=start,rcEl=rc;
+function fit(){const r=cvs.getBoundingClientRect();const h=r.width*16/9;cvs.width=r.width;cvs.height=h;cvs.style.height=h+'px'};addEventListener('resize',fit);fit();
+let run=false,startT=0,time=20,spawn=0,ents=[],score=0,combo=1;const P={small:.10,can:.15,big:.20};
+const euro=n=>n.toFixed(2).replace('.',','), hud=()=>{timeEl.textContent=Math.max(0,Math.ceil(time));scoreEl.textContent=euro(score);comboEl.textContent=Math.floor(combo)};
+function reset(){run=false;time=20;spawn=0;ents=[];score=0;combo=1;rcEl.style.display='none';hud()}
+function startGame(){reset();run=true;startT=performance.now();last=0;requestAnimationFrame(loop)}
+btn.addEventListener('click',startGame);btn.addEventListener('touchstart',e=>{startGame();e.preventDefault()},{passive:false});
+function rnd(a,b){return Math.random()*(b-a)+a}
+function spawnOne(){const types=[{id:'can',good:1,val:P.can,c:'#d1495b',w:36,h:36},{id:'small',good:1,val:P.small,c:'#3da5d9',w:32,h:42},{id:'big',good:1,val:P.big,c:'#2a9d8f',w:36,h:52},{id:'milk',good:0,val:0,c:'#87c7ff',w:36,h:46}];const t=types[Math.floor(Math.random()*types.length)];ents.push({t,x:rnd(24,cvs.width-24),y:-60,vy:rnd(60,110)})}
+function rr(x,y,w,h,r){const R=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+R,y);ctx.arcTo(x+w,y,x+w,y+h,R);ctx.arcTo(x+w,y+h,x,y+h,R);ctx.arcTo(x,y+h,x,y,R);ctx.arcTo(x,y,x+w,y,R);ctx.closePath()}
+const mouth={x:0,y:0,w:0,h:0};function drawMachine(){const W=cvs.width,H=cvs.height,mx=16,my=H*.7,mw=W-32,mh=H*.18;ctx.fillStyle='#3e8f4a';rr(mx,my,mw,mh,16);ctx.fill();ctx.fillStyle='#0c2410';mouth.x=W*.2;mouth.y=my+mh*.2;mouth.w=W*.6;mouth.h=mh*.6;rr(mouth.x,mouth.y,mouth.w,mouth.h,28);ctx.fill()}
+function drawEntity(e){ctx.save();ctx.translate(e.x,e.y);ctx.fillStyle=e.t.c;if(e.t.id==='can'){rr(-e.t.w/2,-e.t.h/2,e.t.w,e.t.h,6)}else{rr(-e.t.w*.35,-e.t.h/2,e.t.w*.7,e.t.h,10)}ctx.fill();ctx.restore()}
+function tap(e){if(!run)return;const r=cvs.getBoundingClientRect(),t=e.touches?e.touches[0]:e,x=t.clientX-r.left,y=t.clientY-r.top;for(let i=ents.length-1;i>=0;i--){const o=ents[i];if(x>mouth.x&&x<mouth.x+mouth.w&&y>mouth.y&&y<mouth.y+mouth.h){if(Math.abs(x-o.x)<40&&Math.abs(y-o.y)<40){if(o.t.good){score+=o.t.val*combo;combo=Math.min(5,combo+.2)}else{score=Math.max(0,score-.1);combo=1}ents.splice(i,1);hud();break}}}e.preventDefault()}
+cvs.addEventListener('click',tap);cvs.addEventListener('touchstart',tap,{passive:false});
+let last=0;function loop(now){if(!run)return;if(!last)last=now;const dt=Math.min(32,now-last)/1e3;last=now;time=20-((now-startT)/1e3);if(time<=0){time=0;run=false;rcEl.style.display='block';rcEl.innerHTML='<b>🧾 Panttikuitti</b><br>Yhteensä: € '+euro(score);hud();return}
+spawn+=dt*1e3;if(spawn>600){spawnOne();spawn=0}
+for(const o of ents)o.y+=o.vy*dt;ents=ents.filter(o=>o.y<cvs.height+60)
+ctx.clearRect(0,0,cvs.width,cvs.height);ctx.fillStyle='#dcefe1';ctx.fillRect(0,0,cvs.width,cvs.height);drawMachine();ents.forEach(drawEntity);hud();requestAnimationFrame(loop)}
+hud()})();
+</script>
