@@ -1,56 +1,60 @@
 <!doctype html>
+<!-- build: v5 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>PanttiPotti</title>
 <style>
   :root { --bg:#fff7e9; --ink:#222; --panel:#e6f0e7; --green:#3e8f4a; --accent:#ff6a00; }
   html,body{height:100%;margin:0;background:var(--bg);font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}
-  .w{max-width:480px;margin:0 auto;padding:10px}
+  .w{max-width:520px;margin:0 auto;padding:10px}
   h1{text-align:center;margin:8px 0 6px;font-size:20px}
-  .h{display:flex;gap:8px;justify-content:space-between;margin:6px 0 10px}
+  .h{display:flex;gap:8px;justify-content:space-between;margin:6px 0 10px;flex-wrap:wrap}
   .c{background:#fff;border:2px solid #0002;border-radius:10px;padding:6px 10px;font-weight:700;box-shadow:0 2px 0 #0003}
   .c.good{border-color:#2a9d8f}
   .c.best{border-color:#8e44ad}
   #g{width:100%;aspect-ratio:9/16;display:block;background:var(--panel);border:3px solid #234;border-radius:18px;touch-action:none}
   .btn{display:inline-block;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px 16px;font-weight:800;box-shadow:0 4px 0 #0005;cursor:pointer}
-  .sheet{background:#fff;border:1px dashed #bbb;padding:14px 14px 10px;border-radius:12px}
+  .sheet{background:#fff;border:1px dashed #bbb;padding:14px 14px 12px;border-radius:12px}
   .sheet h3{margin:0 0 8px 0;font-size:16px}
   .sheet .row{display:flex;justify-content:space-between;margin:4px 0}
   .sheet .line{height:1px;background:repeating-linear-gradient(90deg,#ccc 0 8px,transparent 8px 12px);margin:8px 0}
   .muted{opacity:.65}
   .pop{animation:pop .15s ease-out}
   @keyframes pop{from{transform:scale(1.0)}50%{transform:scale(1.08)}to{transform:scale(1.0)}}
+  .flash{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .18s ease}
+  .flash.show{opacity:.35}
 </style>
 
 <div class="w">
   <h1>🥤 PanttiPotti</h1>
   <div class="h">
-    <div class="c">⏱️ <span id="t">30</span>s</div>
+    <div class="c">⏱️ <span id="t">35</span>s</div>
     <div class="c good">€ <span id="s">0,00</span></div>
     <div class="c">Combo ×<span id="b">1</span></div>
     <div class="c best">🏆 <span id="best">0,00</span></div>
   </div>
-  <canvas id="g"></canvas>
+  <div style="position:relative">
+    <canvas id="g"></canvas>
+    <div id="flash" class="flash" style="background:#fff"></div>
+  </div>
   <div style="text-align:center;margin-top:10px">
     <button class="btn" id="start">Aloita / Uudestaan</button>
   </div>
 
-  <div id="rc" class="sheet" style="display:none;margin-top:10px">
-    <!-- täytetään JS:llä -->
-  </div>
+  <div id="rc" class="sheet" style="display:none;margin-top:10px"></div>
 
   <p class="muted" style="text-align:center;margin-top:8px">
-    Ohje: Vedä panttipullot/tölkit automaatin suuhun. Vältä roskaa. (Tap toimii varalla)
+    Ohje: Vedä tölkit ja pullot automaatin suuhun. Vältä roskaa. (Tap toimii varalla)
   </p>
 </div>
 
 <script>
 (()=>{
 
-// ====== Perusmuuttujat ======
+// ====== Perus ======
 const cvs = g, ctx = cvs.getContext('2d');
-const timeEl = t, scoreEl = s, comboEl = b, bestEl = best, btn = start, rcEl = rc;
-const BEST_KEY = 'panttipotti_best_v2';
+const timeEl = t, scoreEl = s, comboEl = b, bestEl = best, btn = start, rcEl = rc, flashEl = flash;
+const BEST_KEY = 'panttipotti_best_v5';
 
 // Canvas koko
 function fit(){
@@ -61,11 +65,11 @@ function fit(){
 addEventListener('resize', fit); fit();
 
 // Peli-tila
-let run=false, startT=0, time=30, spawn=0;
+let run=false, startT=0, time=35, spawn=0, spawnEvery=720;
 let ents=[], score=0, combo=1, bestCombo=1;
-let counts={small:0, can:0, big:0, wrong:0};
+let counts={smallCan:0, bigCan:0, smallBottle:0, bigBottle:0, wrong:0};
 
-const P = { small:.10, can:.15, big:.20 };
+const P = { smallCan:.15, bigCan:.20, smallBottle:.15, bigBottle:.40 };
 const euro = n => n.toFixed(2).replace('.',',');
 
 function loadBest(){ try{ return parseFloat(localStorage.getItem(BEST_KEY)||'0'); }catch(e){ return 0; } }
@@ -80,33 +84,83 @@ function hud(){
 }
 
 function reset(){
-  run=false; time=30; spawn=0;
+  run=false; time=35; spawn=0; spawnEvery=720;
   ents=[]; score=0; combo=1; bestCombo=1;
-  counts={small:0, can:0, big:0, wrong:0};
+  counts={smallCan:0, bigCan:0, smallBottle:0, bigBottle:0, wrong:0};
   rcEl.style.display='none';
   hud();
 }
 
+// ====== Äänet + haptics ======
+let ac=null;
+function ensureAudio(){ const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return; if(!ac) ac = new AC(); if(ac.state==='suspended') ac.resume(); }
+function beep(freq=900, dur=0.06, type='triangle', vol=0.25){
+  if(!ac) return;
+  const o=ac.createOscillator(), g=ac.createGain();
+  o.type=type; o.frequency.value=freq; g.gain.value=vol;
+  o.connect(g); g.connect(ac.destination);
+  o.start();
+  g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+  o.stop(ac.currentTime + dur);
+}
+function sfxSuccess(kind){
+  // eri äänet tölkille vs pullolle
+  if(kind==='canSmall') beep(1100,0.05,'triangle',0.28);
+  else if(kind==='canBig') beep(950,0.06,'square',0.28);
+  else if(kind==='bottleSmall') beep(820,0.05,'sine',0.25);
+  else if(kind==='bottleBig') beep(700,0.07,'sine',0.28);
+  if(navigator.vibrate) navigator.vibrate(20);
+  flash();
+}
+function sfxFail(){
+  beep(240,0.08,'sawtooth',0.32);
+  if(navigator.vibrate) navigator.vibrate([30,50,30]);
+}
+function sfxReceipt(){
+  // pieni "printteri"
+  for(let i=0;i<5;i++) setTimeout(()=>beep(600-i*40,0.03,'square',0.18), i*60);
+}
+function flash(){
+  flashEl.classList.add('show');
+  setTimeout(()=>flashEl.classList.remove('show'),120);
+}
+
+// ====== Aloitus ======
 function startGame(){
-  reset(); run=true; startT=performance.now(); last=0; requestAnimationFrame(loop);
+  reset(); run=true; startT=performance.now(); last=0; ensureAudio(); requestAnimationFrame(loop);
 }
 btn.addEventListener('click', startGame);
 btn.addEventListener('touchstart', e=>{ startGame(); e.preventDefault(); }, {passive:false});
 
+// ====== Spawnaus ======
 function rnd(a,b){ return Math.random()*(b-a)+a; }
 
-// ====== Spawnaus ======
+// Muodot + värit (brändittömät mutta tunnistettavat)
+const TYPES = [
+  // Pienet tölkit 0,33l (0,15€)
+  {id:'colaSmall',    label:'0,33l tölkki (punainen)',   good:1, val:P.smallCan,    shape:'can',    color:'#e41d1d', w:36,h:50,  sfx:'canSmall'},
+  {id:'pepsiSmall',   label:'0,33l tölkki (sininen)',    good:1, val:P.smallCan,    shape:'can',    color:'#0055a4', w:36,h:50,  sfx:'canSmall'},
+  // Isot tölkit 0,5l (0,20€)
+  {id:'colaBig',      label:'0,5l tölkki (musta/pun.)',  good:1, val:P.bigCan,      shape:'can',    color:'#111',    w:40,h:70,  sfx:'canBig'},
+  {id:'pepsiMax',     label:'0,5l tölkki (musta)',       good:1, val:P.bigCan,      shape:'can',    color:'#000',    w:40,h:70,  sfx:'canBig'},
+  // Pienet pullot 0,33l (0,15€)
+  {id:'aquaSmall',    label:'0,33l muovipullo (vesi)',   good:1, val:P.smallBottle, shape:'bottle', color:'#8fd3ff', w:34,h:62,  sfx:'bottleSmall'},
+  // Isot pullot 1,5l (0,40€)
+  {id:'aquaBig',      label:'1,5l muovipullo',           good:1, val:P.bigBottle,   shape:'bottle', color:'#87cefa', w:46,h:100, sfx:'bottleBig'},
+
+  // Väärät
+  {id:'milk',   label:'Maitotölkki', good:0, val:0,    shape:'box',   color:'#87c7ff', w:44,h:60},
+  {id:'pizza',  label:'Pizzalaatikko', good:0, val:0,  shape:'pizza', color:'#f4a261', w:64,h:26}
+];
+
 function spawnOne(){
-  const types = [
-    {id:'can',   good:1, val:P.can,   c:'#d1495b', w:44, h:44},
-    {id:'small', good:1, val:P.small, c:'#3da5d9', w:40, h:54},
-    {id:'big',   good:1, val:P.big,   c:'#2a9d8f', w:44, h:64},
-    {id:'milk',  good:0, val:0,       c:'#87c7ff', w:44, h:56},
-    {id:'pizza', good:0, val:0,       c:'#f4a261', w:56, h:24}
-  ];
-  const t = types[Math.floor(Math.random()*types.length)];
-  ents.push({t, x:rnd(30,cvs.width-30), y:rnd(cvs.height*0.72,cvs.height-40),
-             w:t.w, h:t.h, grabbed:false, dx:0, dy:0, angle:rnd(-0.1,0.1)});
+  const r = Math.random();
+  const pool = r < 0.7 ? TYPES.filter(t=>t.good) : TYPES.filter(t=>!t.good);
+  const t = pool[Math.floor(Math.random()*pool.length)];
+  ents.push({
+    t, x:rnd(30,cvs.width-30), y:rnd(cvs.height*0.72,cvs.height-42),
+    w:t.w, h:t.h, grabbed:false, dx:0, dy:0, angle:rnd(-0.08,0.08)
+  });
 }
 
 // ====== Piirto ======
@@ -126,26 +180,41 @@ function drawMachine(){
   ctx.fillStyle='#0c2410'; mouth.x=W*.2; mouth.y=my+mh*.2; mouth.w=W*.6; mouth.h=mh*.6;
   rr(mouth.x,mouth.y,mouth.w,mouth.h,28); ctx.fill();
   ctx.fillStyle='#fff'; ctx.font='bold 16px system-ui,-apple-system,Segoe UI,Roboto';
-  ctx.fillText('+0,10€ / +0,15€ / +0,20€', mx+14, my+22);
+  ctx.fillText('+0,15€ / +0,20€ / +0,40€', mx+14, my+22);
 }
 
+function drawCan(e){
+  ctx.fillStyle=e.t.color;
+  rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill();
+  // vaalea kiilto
+  ctx.fillStyle='#fff7'; rr(-e.w/2+6,-e.h/2+6,e.w-12,e.h-12,6); ctx.fill();
+}
+function drawBottle(e){
+  // runko
+  ctx.fillStyle=e.t.color;
+  rr(-e.w*0.35,-e.h/2,e.w*0.7,e.h,12); ctx.fill();
+  // kiilto
+  ctx.fillStyle='#fff6';
+  rr(-e.w*0.35+4,-e.h/2+8,e.w*0.7-8,e.h-16,10); ctx.fill();
+  // korkki
+  ctx.fillStyle='#155';
+  rr(-e.w*0.12,-e.h/2-6,e.w*0.24,8,3); ctx.fill();
+}
+function drawMilk(e){
+  ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.fillRect(-e.w/2+6,-e.h/2+6,e.w-12,e.h/2);
+}
+function drawPizza(e){
+  ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h*0.4,6); ctx.fill();
+  ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,e.h*0.45);
+  ctx.fillStyle='#0002'; ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,4);
+}
 function drawEntity(e){
   ctx.save(); ctx.translate(e.x,e.y); ctx.rotate(e.angle||0);
-  ctx.fillStyle=e.t.c;
-  if(e.t.id==='can'){
-    rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill();
-    ctx.fillStyle='#fff8'; rr(-e.w/2+6,-e.h/2+6,e.w-12,e.h-12,6); ctx.fill();
-  }else if(e.t.id==='small'||e.t.id==='big'){
-    rr(-e.w*0.35,-e.h/2,e.w*0.7,e.h,12); ctx.fill();
-    ctx.fillStyle='#fff6'; rr(-e.w*0.35+4,-e.h/2+6,e.w*0.7-8,e.h-12,10); ctx.fill();
-    ctx.fillStyle='#155'; rr(-e.w*0.12,-e.h/2-6,e.w*0.24,8,3); ctx.fill();
-  }else if(e.t.id==='milk'){
-    rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill();
-    ctx.fillStyle='#fff'; ctx.fillRect(-e.w/2+6,-e.h/2+6,e.w-12,e.h/2);
-  }else{
-    rr(-e.w/2,-e.h/2,e.w,e.h*0.35,6); ctx.fill(); // pizza box kansi
-    ctx.fillRect(-e.w/2,-e.h/2+e.h*0.35,e.w,e.h*0.5);
-  }
+  if(e.t.shape==='can') drawCan(e);
+  else if(e.t.shape==='bottle') drawBottle(e);
+  else if(e.t.shape==='box') drawMilk(e);
+  else if(e.t.shape==='pizza') drawPizza(e);
   ctx.restore();
 }
 
@@ -153,7 +222,7 @@ function drawEntity(e){
 let pointer={down:false,x:0,y:0,target:null,dx:0,dy:0};
 function pos(evt){ const r=cvs.getBoundingClientRect(); const t=evt.touches?evt.touches[0]:evt; return {x:t.clientX-r.left, y:t.clientY-r.top}; }
 function onDown(e){
-  if(!run) return;
+  if(!run) return; ensureAudio();
   const p=pos(e); pointer.down=true; pointer.x=p.x; pointer.y=p.y;
   for(let i=ents.length-1;i>=0;i--){ const o=ents[i];
     if(Math.abs(p.x-o.x)<o.w/2 && Math.abs(p.y-o.y)<o.h/2){
@@ -171,16 +240,14 @@ function inMouth(o){ return o.x>mouth.x && o.x<mouth.x+mouth.w && o.y>mouth.y &&
 function onUp(e){
   if(!run) return; const tgt=pointer.target;
   if(tgt){
-    if(inMouth(tgt)){
-      collect(tgt);
-    }
+    if(inMouth(tgt)){ collect(tgt); }
     tgt.grabbed=false; pointer.target=null; hud();
   }
   pointer.down=false; e.preventDefault();
 }
-// Tap fallback: jos napauttaa suun alueella lähellä esinettä
+// Tap fallback
 function onTap(e){
-  if(!run) return;
+  if(!run) return; ensureAudio();
   const p=pos(e);
   if(!(p.x>mouth.x && p.x<mouth.x+mouth.w && p.y>mouth.y && p.y<mouth.y+mouth.h)) return;
   for(let i=ents.length-1;i>=0;i--){
@@ -193,14 +260,24 @@ function collect(o){
     score += o.t.val * combo;
     combo = Math.min(5, combo + 0.25);
     bestCombo = Math.max(bestCombo, Math.floor(combo));
-    if(o.t.id==='small') counts.small++; else if(o.t.id==='can') counts.can++; else counts.big++;
+    if(o.t.id.includes('Small') && o.t.shape==='can') counts.smallCan++;
+    else if(o.t.id.includes('Big') && o.t.shape==='can') counts.bigCan++;
+    else if(o.t.id.includes('Small') && o.t.shape==='bottle') counts.smallBottle++;
+    else if(o.t.id.includes('Big') && o.t.shape==='bottle') counts.bigBottle++;
+    sfxSuccess(
+      o.t.shape==='can'
+        ? (o.t.h>=70?'canBig':'canSmall')
+        : (o.t.h>=90?'bottleBig':'bottleSmall')
+    );
     scoreEl.parentElement.classList.add('pop'); setTimeout(()=>scoreEl.parentElement.classList.remove('pop'),120);
   }else{
     score = Math.max(0, score - 0.10);
-    combo = 1; counts.wrong++;
+    combo = 1; counts.wrong++; sfxFail();
   }
   ents = ents.filter(x=>x!==o);
 }
+
+// eventit
 cvs.addEventListener('mousedown', onDown);
 cvs.addEventListener('mousemove', onMove);
 addEventListener('mouseup', onUp);
@@ -209,23 +286,21 @@ cvs.addEventListener('touchmove', onMove, {passive:false});
 cvs.addEventListener('touchend', onUp, {passive:false});
 cvs.addEventListener('click', onTap); // fallback
 
-// ====== Game loop ======
+// ====== Loop ======
 let last=0;
 function loop(now){
   if(!run) return;
   if(!last) last=now;
   const dt=Math.min(32, now-last)/1000; last=now;
 
-  time = 30 - ((now-startT)/1000);
+  time = 35 - ((now-startT)/1000);
   if(time<=0){ time=0; run=false; endRun(); hud(); return; }
 
   spawn += dt*1000;
-  if(spawn>700){ spawnOne(); spawn=0; } // tihenee tarvittaessa
+  if(spawn>spawnEvery){ spawnOne(); spawn=0; spawnEvery=Math.max(360, spawnEvery-10); }
 
-  // kevyt kellunta ja rajat
   for(const o of ents){ if(!o.grabbed){ o.angle += (Math.random()-0.5)*0.02; o.x += Math.sin(now/250+o.y)*0.08; } }
 
-  // piirto
   ctx.clearRect(0,0,cvs.width,cvs.height);
   ctx.fillStyle='#dcefe1'; ctx.fillRect(0,0,cvs.width,cvs.height);
   drawMachine();
@@ -240,18 +315,25 @@ function endRun(){
   const best = loadBest();
   if(score > best) saveBest(score);
 
-  rcEl.innerHTML = `
-    <h3>🧾 Panttikuitit Oy</h3>
-    <div class="row"><span>Muovipullo pieni × ${counts.small}</span><span>€ ${(counts.small*P.small).toFixed(2).replace('.',',')}</span></div>
-    <div class="row"><span>Tölkki × ${counts.can}</span><span>€ ${(counts.can*P.can).toFixed(2).replace('.',',')}</span></div>
-    <div class="row"><span>Muovipullo iso × ${counts.big}</span><span>€ ${(counts.big*P.big).toFixed(2).replace('.',',')}</span></div>
-    <div class="row"><span class="muted">Virheitä (ei panttia)</span><span class="muted">× ${counts.wrong}</span></div>
-    <div class="line"></div>
-    <div class="row" style="font-weight:800"><span>Yhteensä</span><span>€ ${euro(score)}</span></div>
-    <div class="row"><span>Paras combo</span><span>×${Math.max(1,Math.floor(bestCombo))}</span></div>
-    <div class="row"><span>Ennätys</span><span>€ ${euro(loadBest())}</span></div>
-  `;
+        
+  const rows = [
+    `<h3>🧾 Panttikuitit Oy</h3>`,
+    `<div class="row"><span>Pieni tölkki 0,33l × ${counts.smallCan}</span><span>€ ${(counts.smallCan*P.smallCan).toFixed(2).replace('.',',')}</span></div>`,
+    `<div class="row"><span>Iso tölkki 0,5l × ${counts.bigCan}</span><span>€ ${(counts.bigCan*P.bigCan).toFixed(2).replace('.',',')}</span></div>`,
+    `<div class="row"><span>Pieni pullo 0,33l × ${counts.smallBottle}</span><span>€ ${(counts.smallBottle*P.smallBottle).toFixed(2).replace('.',',')}</span></div>`,
+    `<div class="row"><span>Iso pullo 1,5l × ${counts.bigBottle}</span><span>€ ${(counts.bigBottle*P.bigBottle).toFixed(2).replace('.',',')}</span></div>`,
+    `<div class="row"><span class="muted">Virheitä (ei panttia)</span><span class="muted">× ${counts.wrong}</span></div>`,
+    `<div class="line"></div>`,
+    `<div class="row" style="font-weight:800"><span>Yhteensä</span><span>€ ${euro(score)}</span></div>`,
+    `<div class="row"><span>Paras combo</span><span>×${Math.max(1,Math.floor(bestCombo))}</span></div>`,
+    `<div class="row"><span>Ennätys</span><span>€ ${euro(loadBest())}</span></div>`,
+    `<div class="line"></div>`,
+    `<div class="row muted"><span>Kiitos asioinnista</span><span>01/01 12:00</span></div>`,
+    `<div style="height:22px;background:repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 6px);margin-top:6px"></div>`
+  ];
+  rcEl.innerHTML = rows.join('');
   rcEl.style.display='block';
+  sfxReceipt();
 }
 
 hud(); // aloitus
