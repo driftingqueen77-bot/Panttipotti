@@ -315,7 +315,6 @@ function endRun(){
   const best = loadBest();
   if(score > best) saveBest(score);
 
-        
   const rows = [
     `<h3>🧾 Panttikuitit Oy</h3>`,
     `<div class="row"><span>Pieni tölkki 0,33l × ${counts.smallCan}</span><span>€ ${(counts.smallCan*P.smallCan).toFixed(2).replace('.',',')}</span></div>`,
