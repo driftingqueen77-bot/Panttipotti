@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- build: v7 -->
+<!-- build: v8 (safe start, no <audio> tags) -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>PanttiPotti</title>
@@ -16,8 +16,8 @@
   .sheet{background:#fff;border:1px dashed #bbb;padding:14px 14px 12px;border-radius:12px}
   .sheet h3{margin:0 0 8px;font-size:16px}.sheet .row{display:flex;justify-content:space-between;margin:4px 0}
   .sheet .line{height:1px;background:repeating-linear-gradient(90deg,#ccc 0 8px,transparent 8px 12px);margin:8px 0}
-  .muted{opacity:.65}.pop{animation:pop .15s ease-out}@keyframes pop{from{transform:scale(1)}50%{transform:scale(1.08)}to{transform:scale(1)}}
-  .funnel{position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none}
+  .muted{opacity:.65}.pop{animation:pop .15s ease-out}
+  @keyframes pop{from{transform:scale(1)}50%{transform:scale(1.08)}to{transform:scale(1)}}
 </style>
 
 <div class="w">
@@ -28,55 +28,54 @@
     <div class="c">Combo ×<span id="b">1</span></div>
     <div class="c best">🏆 <span id="best">0,00</span></div>
   </div>
-  <div style="position:relative">
-    <canvas id="g"></canvas>
-    <svg id="funnelFx" class="funnel" viewBox="0 0 100 100"></svg>
-  </div>
+  <canvas id="g"></canvas>
   <div style="text-align:center;margin-top:10px">
     <button class="btn" id="start">Aloita / Uudestaan</button>
   </div>
   <div id="rc" class="sheet" style="display:none;margin-top:10px"></div>
-
-  <!-- ÄÄNET: lyhyet klipit (unlockataan Aloita-napista) -->
-  <audio id="sndCanS" preload="auto"><source src="data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." type="audio/mpeg"></audio>
-  <audio id="sndCanL" preload="auto"><source src="data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." type="audio/mpeg"></audio>
-  <audio id="sndBotS" preload="auto"><source src="data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." type="audio/mpeg"></audio>
-  <audio id="sndBotL" preload="auto"><source src="data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." type="audio/mpeg"></audio>
-  <audio id="sndFail"  preload="auto"><source src="data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." type="audio/mpeg"></audio>
-  <audio id="sndPrint" preload="auto"><source src="data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." type="audio/mpeg"></audio>
-
-  <p class="muted" style="text-align:center;margin-top:8px">
-    Vinkki: Jos ääntä ei kuulu, poista iPhonesta <b>äänetön tila</b>.
-  </p>
 </div>
 
 <script>
 (()=>{
-// ---- Perus
-const cvs=g, ctx=cvs.getContext('2d');
-const timeEl=t, scoreEl=s, comboEl=b, bestEl=best, btn=start, rcEl=rc, funnelSvg=funnelFx;
-const BEST_KEY='panttipotti_best_v7';
+// ---- DOM
+const cvs = document.getElementById('g');
+const ctx = cvs.getContext('2d');
+const timeEl = document.getElementById('t');
+const scoreEl = document.getElementById('s');
+const comboEl = document.getElementById('b');
+const bestEl  = document.getElementById('best');
+const btn     = document.getElementById('start');
+const rcEl    = document.getElementById('rc');
+const BEST_KEY='panttipotti_best_v8';
+
+// ---- Canvas fit
+function fit(){
+  const r=cvs.getBoundingClientRect();
+  const h=r.width*16/9;
+  cvs.width=r.width; cvs.height=h; cvs.style.height=h+'px';
+}
+addEventListener('resize',fit); fit();
+
+// ---- Game state
+let run=false,startT=0,time=35,spawnT=0,spawnEvery=820,last=0;
+let ents=[], score=0, combo=1, bestCombo=1;
+let counts={smallCan:0,bigCan:0,smallBottle:0,bigBottle:0,wrong:0};
+const MAX_ENTS=12;
 const P={smallCan:.15,bigCan:.20,smallBottle:.15,bigBottle:.40};
 const euro=n=>n.toFixed(2).replace('.',',');
-function fit(){const r=cvs.getBoundingClientRect();const h=r.width*16/9;cvs.width=r.width;cvs.height=h;cvs.style.height=h+'px'} addEventListener('resize',fit); fit();
-let run=false,startT=0,time=35,spawnT=0,spawnEvery=800; let ents=[],score=0,combo=1,bestCombo=1;
-let counts={smallCan:0,bigCan:0,smallBottle:0,bigBottle:0,wrong:0}; const MAX_ENTS=12;
-const loadBest=()=>{try{return parseFloat(localStorage.getItem(BEST_KEY)||'0')}catch(e){return 0}}; const saveBest=v=>{try{localStorage.setItem(BEST_KEY,String(v))}catch(e){}};
-bestEl.textContent=euro(loadBest()); function hud(){timeEl.textContent=Math.max(0,Math.ceil(time));scoreEl.textContent=euro(score);comboEl.textContent=Math.floor(combo);bestEl.textContent=euro(loadBest())}
-function reset(){run=false;time=35;spawnT=0;spawnEvery=800;ents=[];score=0;combo=1;bestCombo=1;counts={smallCan:0,bigCan:0,smallBottle:0,bigBottle:0,wrong:0};rcEl.style.display='none';hud()}
 
-// ---- Äänet (HTMLAudio) + haptics
-const sounds={canS:sndCanS, canL:sndCanL, botS:sndBotS, botL:sndBotL, fail:sndFail, print:sndPrint};
-function unlockAudio(){ Object.values(sounds).forEach(a=>{ try{ a.muted=true; a.play().then(()=>{a.pause();a.currentTime=0;a.muted=false}).catch(()=>{}) }catch(e){} }); }
-function play(id){ const a=sounds[id]; if(!a) return; try{ a.currentTime=0; a.play(); }catch(e){} }
-function vibe(p){ if(navigator.vibrate) navigator.vibrate(p) }
+function loadBest(){ try{ return parseFloat(localStorage.getItem(BEST_KEY)||'0'); }catch(e){ return 0; } }
+function saveBest(v){ try{ localStorage.setItem(BEST_KEY,String(v)); }catch(e){} }
+bestEl.textContent=euro(loadBest());
+function hud(){ timeEl.textContent=Math.max(0,Math.ceil(time)); scoreEl.textContent=euro(score); comboEl.textContent=Math.floor(combo); bestEl.textContent=euro(loadBest()); }
+function reset(){ run=false; time=35; spawnT=0; spawnEvery=820; ents=[]; score=0; combo=1; bestCombo=1; counts={smallCan:0,bigCan:0,smallBottle:0,bigBottle:0,wrong:0}; rcEl.style.display='none'; hud(); }
 
-// ---- Start
-btn.addEventListener('click',()=>{unlockAudio(); start()});
-btn.addEventListener('touchstart',e=>{unlockAudio(); start(); e.preventDefault()},{passive:false});
-function start(){ reset(); run=true; startT=performance.now(); last=0; requestAnimationFrame(loop) }
+// ---- Start (single listener, pointer-first)
+function startGame(){ reset(); run=true; startT=performance.now(); last=0; requestAnimationFrame(loop); }
+btn.addEventListener('pointerdown', (e)=>{ startGame(); e.preventDefault(); }, {passive:false});
+btn.addEventListener('click', (e)=>{ startGame(); });
 
-// ---- Tyypit
+// ---- Types
 const TYPES=[
   {id:'colaSmall',   label:'0,33l tölkki', good:1, val:P.smallCan,    shape:'can',    color:'#e41d1d', w:36,h:50,  cat:'smallCan'},
   {id:'pepsiSmall',  label:'0,33l tölkki', good:1, val:P.smallCan,    shape:'can',    color:'#0055a4', w:36,h:50,  cat:'smallCan'},
@@ -88,101 +87,71 @@ const TYPES=[
   {id:'pizza',label:'Pizzalaatikko',good:0,val:0,shape:'pizza',color:'#f4a261', w:64,h:26}
 ];
 const rnd=(a,b)=>Math.random()*(b-a)+a;
-function spawn(){ const r=Math.random(); const pool= r<0.8?TYPES.filter(t=>t.good):TYPES.filter(t=>!t.good); const t=pool[Math.floor(Math.random()*pool.length)];
-  ents.push({t,x:rnd(30,cvs.width-30),y:rnd(cvs.height*0.70,cvs.height-44),w:t.w,h:t.h,grab:false,dx:0,dy:0,a:rnd(-.08,.08),vx:0,vy:0}) }
 
-// ---- Piirto + aidommat tölkit
-function rr(x,y,w,h,r){const R=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+R,y);ctx.arcTo(x+w,y,x+w,y+h,R);ctx.arcTo(x+w,y+h,x,y+h,R);ctx.arcTo(x,y+h,x,y,R);ctx.arcTo(x,y,x+w,y,R);ctx.closePath()}
+function spawn(){
+  const r=Math.random();
+  const pool = r<0.8 ? TYPES.filter(t=>t.good) : TYPES.filter(t=>!t.good);
+  const t = pool[Math.floor(Math.random()*pool.length)];
+  ents.push({t,x:rnd(30,cvs.width-30),y:rnd(cvs.height*0.70,cvs.height-44),w:t.w,h:t.h,grab:false,dx:0,dy:0,a:rnd(-.08,.08)});
+}
+
+// ---- Draw helpers
+function rr(x,y,w,h,r){const R=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+R,y);ctx.arcTo(x+w,y,x+w,y+h,R);ctx.arcTo(x+w,y+h,x,y+h,R);ctx.arcTo(x,y+h,x,y,R);ctx.arcTo(x,y,x+w,y,R);ctx.closePath();}
 const mouth={x:0,y:0,w:0,h:0}, funnel={x:0,y:0,w:0,h:0};
 function drawMachine(){
   const W=cvs.width,H=cvs.height,mx=16,my=H*.22,mw=W-32,mh=H*.22;
-  // vihreä paneeli
   ctx.fillStyle='#3e8f4a'; rr(mx,my,mw,mh,16); ctx.fill();
-  // suun “suppilo”: laajempi törmäysalue (funnel) + varsinainen suu
   funnel.x=W*.16; funnel.w=W*.68; funnel.y=my+mh*.12; funnel.h=mh*.76;
   mouth.x=W*.22; mouth.w=W*.56; mouth.y=my+mh*.22; mouth.h=mh*.56;
-  // varsinainen suu
   ctx.fillStyle='#0c2410'; rr(mouth.x,mouth.y,mouth.w,mouth.h,26); ctx.fill();
-  // hinnat
   ctx.fillStyle='#fff'; ctx.font='bold 16px system-ui,-apple-system,Segoe UI,Roboto';
   ctx.fillText('+0,15€ / +0,20€ / +0,40€', mx+14, my+22);
-
-  // SVG-efekti suppiloon (vihreä kehävälähdys)
-  const fx=funnelSvg; const w=cvs.clientWidth, h=cvs.clientHeight;
-  fx.innerHTML=`<rect x="${(funnel.x/cvs.width)*100}" y="${(funnel.y/cvs.height)*100}" width="${(funnel.w/cvs.width)*100}" height="${(funnel.h/cvs.height)*100}" rx="8" ry="8" fill="none" stroke="#7CFF7C" stroke-width="1.8" opacity="0.18"></rect>`;
 }
+function drawCan(e){ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill(); ctx.fillStyle='#ffffffaa'; rr(-e.w/2+4,-e.h*0.15,e.w-8,e.h*0.3,6); ctx.fill(); ctx.fillStyle='#cfd6db'; rr(-e.w/2,-e.h/2-4,e.w,10,4); ctx.fill(); ctx.fillStyle='#b7bec3'; rr(-e.w/2,-e.h/2+e.h-6,e.w,8,4); ctx.fill(); ctx.fillStyle='#ffffff66'; rr(-e.w/2+6,-e.h/2+6,e.w-12,e.h-12,6); ctx.fill();}
+function drawBottle(e){ctx.fillStyle=e.t.color; rr(-e.w*0.35,-e.h/2,e.w*0.7,e.h,12); ctx.fill(); ctx.fillStyle='#fff6'; rr(-e.w*0.35+4,-e.h/2+8,e.w*0.7-8,e.h-16,10); ctx.fill(); ctx.fillStyle='#155'; rr(-e.w*0.12,-e.h/2-6,e.w*0.24,8,3); ctx.fill();}
+function drawMilk(e){ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill(); ctx.fillStyle='#fff'; ctx.fillRect(-e.w/2+6,-e.h/2+6,e.w-12,e.h/2);}
+function drawPizza(e){ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h*0.4,6); ctx.fill(); ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,e.h*0.45); ctx.fillStyle='#0002'; ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,4);}
+function drawEntity(e){ctx.save(); ctx.translate(e.x,e.y); ctx.rotate(e.a||0); if(e.t.shape==='can')drawCan(e); else if(e.t.shape==='bottle')drawBottle(e); else if(e.t.shape==='box')drawMilk(e); else drawPizza(e); ctx.restore();}
 
-function drawCan(e){
-  // runko
-  ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill();
-  // etikettivyö
-  ctx.fillStyle='#ffffffaa'; rr(-e.w/2+4,-e.h*0.15,e.w-8,e.h*0.3,6); ctx.fill();
-  // metallikansi
-  ctx.fillStyle='#cfd6db'; rr(-e.w/2,-e.h/2-4,e.w,10,4); ctx.fill();
-  ctx.fillStyle='#b5bcc1'; rr(-e.w*0.16,-e.h/2-1.5,e.w*0.32,4,2); ctx.fill(); // vetolenkki
-  // pohjapyöristys
-  ctx.fillStyle='#b7bec3'; rr(-e.w/2,-e.h/2+e.h-6,e.w,8,4); ctx.fill();
-  // kiilto
-  ctx.fillStyle='#ffffff66'; rr(-e.w/2+6,-e.h/2+6,e.w-12,e.h-12,6); ctx.fill();
-}
-function drawBottle(e){
-  ctx.fillStyle=e.t.color; rr(-e.w*0.35,-e.h/2,e.w*0.7,e.h,12); ctx.fill();     // runko
-  ctx.fillStyle='#fff6'; rr(-e.w*0.35+4,-e.h/2+8,e.w*0.7-8,e.h-16,10); ctx.fill(); // kiilto
-  ctx.fillStyle='#155'; rr(-e.w*0.12,-e.h/2-6,e.w*0.24,8,3); ctx.fill();           // korkki
-}
-function drawMilk(e){ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h,8); ctx.fill(); ctx.fillStyle='#fff'; ctx.fillRect(-e.w/2+6,-e.h/2+6,e.w-12,e.h/2)}
-function drawPizza(e){ctx.fillStyle=e.t.color; rr(-e.w/2,-e.h/2,e.w,e.h*0.4,6); ctx.fill(); ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,e.h*0.45); ctx.fillStyle='#0002'; ctx.fillRect(-e.w/2,-e.h/2+e.h*0.4,e.w,4)}
-function drawEntity(e){ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.a||0); if(e.t.shape==='can')drawCan(e); else if(e.t.shape==='bottle')drawBottle(e); else if(e.t.shape==='box')drawMilk(e); else drawPizza(e); ctx.restore()}
-
-// ---- Drag & tap + automagneetti
+// ---- Input (drag + tap)
 let ptr={down:false,x:0,y:0,target:null,dx:0,dy:0};
-const pos=evt=>{const r=cvs.getBoundingClientRect();const t=evt.touches?evt.touches[0]:evt;return {x:t.clientX-r.left,y:t.clientY-r.top}}
-function onDown(e){ if(!run)return; const p=pos(e); ptr.down=true; ptr.x=p.x; ptr.y=p.y;
-  for(let i=ents.length-1;i>=0;i--){const o=ents[i]; if(Math.abs(p.x-o.x)<o.w/2 && Math.abs(p.y-o.y)<o.h/2){ptr.target=o;o.grab=true;ptr.dx=o.x-p.x;ptr.dy=o.y-p.y;break}}
-  e.preventDefault()}
-function onMove(e){ if(!run||!ptr.down)return; const p=pos(e); ptr.x=p.x; ptr.y=p.y; if(ptr.target){ptr.target.x=p.x+ptr.dx; ptr.target.y=p.y+ptr.dy; magnet(ptr.target)} e.preventDefault()}
-function onUp(e){ if(!run)return; if(ptr.target){ptr.target.grab=false; ptr.target=null; hud()} ptr.down=false; e.preventDefault()}
-function onTap(e){ if(!run)return; const p=pos(e); for(let i=ents.length-1;i>=0;i--){const o=ents[i]; if(Math.abs(p.x-o.x)<40&&Math.abs(p.y-o.y)<40){ o.x=p.x;o.y=p.y; magnet(o); break}} e.preventDefault()}
-cvs.addEventListener('mousedown',onDown); cvs.addEventListener('mousemove',onMove); addEventListener('mouseup',onUp);
-cvs.addEventListener('touchstart',onDown,{passive:false}); cvs.addEventListener('touchmove',onMove,{passive:false}); cvs.addEventListener('touchend',onUp,{passive:false}); cvs.addEventListener('click',onTap);
+function pos(evt){const r=cvs.getBoundingClientRect();const t=evt.touches?evt.touches[0]:evt;return {x:t.clientX-r.left,y:t.clientY-r.top};}
+function onDown(e){ if(!run) return; const p=pos(e); ptr.down=true; ptr.x=p.x; ptr.y=p.y;
+  for(let i=ents.length-1;i>=0;i--){const o=ents[i]; if(Math.abs(p.x-o.x)<o.w/2 && Math.abs(p.y-o.y)<o.h/2){ptr.target=o; o.grab=true; ptr.dx=o.x-p.x; ptr.dy=o.y-p.y; break;}} e.preventDefault(); }
+function onMove(e){ if(!run||!ptr.down) return; const p=pos(e); ptr.x=p.x; ptr.y=p.y; if(ptr.target){ptr.target.x=p.x+ptr.dx; ptr.target.y=p.y+ptr.dy; magnet(ptr.target);} e.preventDefault(); }
+function onUp(e){ if(!run) return; if(ptr.target){ptr.target.grab=false; ptr.target=null; hud();} ptr.down=false; e.preventDefault(); }
+function onTap(e){ if(!run) return; const p=pos(e); for(let i=ents.length-1;i>=0;i--){const o=ents[i]; if(Math.abs(p.x-o.x)<40 && Math.abs(p.y-o.y)<40){ o.x=p.x; o.y=p.y; magnet(o); break; }} e.preventDefault(); }
+cvs.addEventListener('pointerdown', onDown); cvs.addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
+cvs.addEventListener('click', onTap);
 
-// “Suppilo-magneetti”: jos osuu suppiloalueelle -> vedetään keskelle ja kerätään
-function inRect(o,r){return o.x>r.x && o.x<r.x+r.w && o.y>r.y && o.y<r.y+r.h}
-function magnet(o){
-  if(inRect(o,funnel)){ // vedä suuta kohti
-    const cx=mouth.x+mouth.w/2, cy=mouth.y+mouth.h/2;
-    o.x += (cx-o.x)*0.35; o.y += (cy-o.y)*0.35;
-  }
-  collectIfInMouth(o);
-}
-function collectIfInMouth(o){
+// ---- Magnet & collect
+function inRect(o,r){ return o.x>r.x && o.x<r.x+r.w && o.y>r.y && o.y<r.y+r.h; }
+function magnet(o){ if(inRect(o,funnel)){ const cx=mouth.x+mouth.w/2, cy=mouth.y+mouth.h/2; o.x += (cx-o.x)*0.35; o.y += (cy-o.y)*0.35; } collect(o); }
+function collect(o){
   if(!inRect(o,mouth)) return;
   if(o.t.good){
     score += o.t.val*combo; combo=Math.min(5,combo+0.25); bestCombo=Math.max(bestCombo,Math.floor(combo));
-    counts[o.t.cat]++; scoreEl.parentElement.classList.add('pop'); setTimeout(()=>scoreEl.parentElement.classList.remove('pop'),120);
-    // äänet + haptics
-    if(o.t.cat==='smallCan') play('canS'); else if(o.t.cat==='bigCan') play('canL'); else if(o.t.cat==='smallBottle') play('botS'); else if(o.t.cat==='bigBottle') play('botL');
-    vibe(20);
+    if(o.t.cat) counts[o.t.cat]++; scoreEl.parentElement.classList.add('pop'); setTimeout(()=>scoreEl.parentElement.classList.remove('pop'),120);
   }else{
-    score=Math.max(0,score-0.10); combo=1; counts.wrong++; play('fail'); vibe([30,40,30]);
+    score=Math.max(0,score-0.10); combo=1; counts.wrong++;
   }
-  ents=ents.filter(x=>x!==o); hud();
+  ents = ents.filter(x=>x!==o); hud();
 }
 
 // ---- Loop
-let last=0;
 function loop(now){
   if(!run) return;
-  if(!last) last=now; const dt=Math.min(32,now-last)/1000; last=now;
-  time = 35 - ((now-startT)/1000); if(time<=0){time=0;run=false;finish();hud();return}
-  spawnT += dt*1000; if(spawnT>spawnEvery && ents.length<MAX_ENTS){spawn(); spawnT=0; spawnEvery=Math.max(420,spawnEvery-8)}
-  for(const o of ents){ if(!o.grab){ o.a+=(Math.random()-.5)*.02; o.x+=Math.sin(now/250+o.y)*.08 } magnet(o) }
+  if(!last) last=now; const dt=Math.min(32, now-last)/1000; last=now;
+  time = 35 - ((now-startT)/1000); if(time<=0){ time=0; run=false; finish(); hud(); return; }
+  spawnT += dt*1000; if(spawnT>spawnEvery && ents.length<MAX_ENTS){ spawn(); spawnT=0; spawnEvery=Math.max(440, spawnEvery-8); }
+  for(const o of ents){ if(!o.grab){ o.a += (Math.random()-0.5)*0.02; o.x += Math.sin(now/250+o.y)*0.08; } magnet(o); }
   ctx.clearRect(0,0,cvs.width,cvs.height); ctx.fillStyle='#dcefe1'; ctx.fillRect(0,0,cvs.width,cvs.height); drawMachine(); ents.forEach(drawEntity); hud();
-  requestAnimationFrame(loop)
+  requestAnimationFrame(loop);
 }
 
-// ---- Kuitti
-function finish(){ const best=loadBest(); if(score>best) saveBest(score); play('print');
+// ---- Receipt
+function finish(){
+  const best=loadBest(); if(score>best) saveBest(score);
   rcEl.innerHTML=[
     `<h3>🧾 Panttikuitit Oy</h3>`,
     row(`Pieni tölkki 0,33l`, counts.smallCan, P.smallCan),
@@ -195,10 +164,10 @@ function finish(){ const best=loadBest(); if(score>best) saveBest(score); play('
     `<div class="row"><span>Paras combo</span><span>×${Math.max(1,Math.floor(bestCombo))}</span></div>`,
     `<div class="row"><span>Ennätys</span><span>€ ${euro(loadBest())}</span></div>`
   ].join('');
-  rcEl.style.display='block'
+  rcEl.style.display='block';
 }
-function row(name,cnt,price){return `<div class="row"><span>${name} × ${cnt}</span><span>€ ${(cnt*price).toFixed(2).replace('.',',')}</span></div>`}
+function row(name,cnt,price){ return `<div class="row"><span>${name} × ${cnt}</span><span>€ ${(cnt*price).toFixed(2).replace('.',',')}</span></div>`; }
 
 hud();
 })();
-</script>u
+</script>
